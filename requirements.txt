@@ -1,0 +1,13 @@
+# Audio Analysis & BPM Detection
+librosa==0.10.0
+scipy>=1.12.0
+numpy>=1.24.0
+
+# Audio Feature Extraction
+scikit-learn>=1.3.0
+
+# Optional: Advanced audio processing
+essentia>=2.1.0
+
+# CLI & Utilities
+python-dotenv>=1.0.0
