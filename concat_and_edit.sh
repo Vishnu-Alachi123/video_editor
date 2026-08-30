@@ -23,7 +23,12 @@ mkdir -p temp
 # Find every video AND image file in raw_clips/, any filename, sorted
 # together so numbered prefixes (01_, 02_, ...) control the final order
 # regardless of whether an item is a video or a photo.
-mapfile -t ITEMS < <(find raw_clips -maxdepth 1 -type f \( \
+# (Uses a while-read loop instead of mapfile for compatibility with
+# macOS's default bash 3.2, which predates mapfile/readarray.)
+ITEMS=()
+while IFS= read -r line; do
+  ITEMS+=("$line")
+done < <(find raw_clips -maxdepth 1 -type f \( \
   -iname "*.mp4" -o -iname "*.mov" -o -iname "*.m4v" -o \
   -iname "*.mkv" -o -iname "*.avi" -o \
   -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.heic" \
