@@ -1,4 +1,4 @@
-import { FFmpegWrapper } from '../lib/ffmpeg-wrapper.js';
+import { FFmpegWrapper, VideoMetadata } from '../lib/ffmpeg-wrapper.js';
 import { config, initializeDirectories } from '../lib/config.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -11,7 +11,13 @@ interface ExtractOptions {
   outputDir?: string;
 }
 
-async function extractVideo(options: ExtractOptions) {
+interface ExtractionResult {
+  videoPath: string;
+  metadata: VideoMetadata;
+  outputDir: string;
+}
+
+async function extractVideo(options: ExtractOptions): Promise<ExtractionResult> {
   const {
     videoPath,
     extractAudio = true,

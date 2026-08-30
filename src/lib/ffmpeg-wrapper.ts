@@ -25,6 +25,8 @@ interface CutPoint {
   label?: string;
 }
 
+export { VideoMetadata };
+
 export class FFmpegWrapper extends EventEmitter {
   private ffmpegPath: string;
   private ffprobePath: string;
@@ -44,9 +46,13 @@ export class FFmpegWrapper extends EventEmitter {
         const stream = metadata.streams.find(s => s.codec_type === 'video');
         if (!stream) throw new Error('No video stream found');
 
+        const fpsStr = stream.r_frame_rate || '30/1';
+        const fpsParts = fpsStr.split('/');
+        const fps = fpsParts.length === 2 ? parseInt(fpsParts[0]) / parseInt(fpsParts[1]) : 30;
+
         resolve({
           duration: metadata.format.duration || 0,
-          fps: eval(stream.r_frame_rate),
+          fps,
           width: stream.width || 0,
           height: stream.height || 0,
           bitrate: parseInt(stream.bit_rate || '0'),
@@ -63,7 +69,7 @@ export class FFmpegWrapper extends EventEmitter {
         .audioCodec('libmp3lame')
         .audioBitrate('192k')
         .on('error', reject)
-        .on('end', resolve)
+        .on('end', () => resolve())
         .save(outputPath);
     });
   }
@@ -131,7 +137,7 @@ export class FFmpegWrapper extends EventEmitter {
         .audioCodec('aac')
         .outputOptions(['-crf', '23'])
         .on('error', reject)
-        .on('end', resolve)
+        .on('end', () => resolve())
         .save(outputPath);
     });
   }
@@ -145,7 +151,7 @@ export class FFmpegWrapper extends EventEmitter {
         .audioCodec('aac')
         .outputOptions(['-crf', '23'])
         .on('error', reject)
-        .on('end', resolve)
+        .on('end', () => resolve())
         .save(outputPath);
     });
   }
@@ -174,7 +180,7 @@ export class FFmpegWrapper extends EventEmitter {
           '-shortest',
         ])
         .on('error', reject)
-        .on('end', resolve)
+        .on('end', () => resolve())
         .save(outputPath);
     });
   }
@@ -191,7 +197,7 @@ export class FFmpegWrapper extends EventEmitter {
         .videoCodec('libx264')
         .audioCodec('aac')
         .on('error', reject)
-        .on('end', resolve)
+        .on('end', () => resolve())
         .save(outputPath);
     });
   }
@@ -210,7 +216,7 @@ export class FFmpegWrapper extends EventEmitter {
           timestamps: [timestamp],
         })
         .on('error', reject)
-        .on('end', resolve);
+        .on('end', () => resolve());
     });
   }
 }
