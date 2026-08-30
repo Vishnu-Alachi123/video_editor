@@ -68,32 +68,53 @@ export class ClaudeVideoAnalyzer {
               ...imageContents,
               {
                 type: 'text',
-                text: `Analyze these video keyframes for a travel vlog editing scenario.
+                text: `You are editing a SUMMER INSTAGRAM REELS travel vlog. Analyze these keyframes with this EXACT aesthetic:
 
-Audio context: ${audioDescription}
-BPM: ${beatTiming.bpm}
-Available beat points (seconds): ${beatTiming.beatTimes.slice(0, 20).join(', ')}
+EDITING STYLE: Cinematic Instagram Reels (dreamy, nostalgic, summer montage)
+MUSIC: ${audioDescription} (${beatTiming.bpm} BPM - use this for pacing)
+FORMAT: Vertical 9:16 (Instagram Reels optimized)
+VIBE: Summer memories collection, like Tame Impala energy (psychedelic but chill)
 
-For each scene shown, provide:
-1. A brief description of the content
-2. Dominant emotions (energy level, mood)
-3. Suggested cut points that align with beat times
-4. Recommended transition type (cut, fade, wipe, etc.)
-5. Color grading hint (warm, cool, saturated, desaturated, etc.)
+COLOR GRADING:
+- Warm golden tones (beach sunset aesthetic)
+- Slightly saturated (dreamy, not oversaturated)
+- Soft highlights (nostalgic, not harsh)
+- Subtle vintage tint (Summer 2024 vibes)
+- HIGH contrast on beaches (punchy blues against golden sand)
 
-Format as JSON array of scenes. Example:
+PACING & TRANSITIONS:
+- Landscapes: 3-5 sec per scene (let them breathe, cinematic)
+- Regular scenes: 2-3 sec (medium pacing)
+- Action/bars: 1-2 sec (faster energy)
+- Transitions: Smooth fades ONLY (no jarring cuts, no zoom)
+- Sync beats: Subtle cuts on beat changes, not aggressive
+
+CUTTING STRATEGY:
+- Longer holds on beautiful/serene scenes
+- Cuts align to BPM but feel natural, not robotic
+- Match emotional pacing to music energy
+- Emphasize quiet moments (beach sunrise > night clubs)
+
+For EACH scene, provide:
+1. What you see (beach, bar, sunset, people, water, etc.)
+2. Mood/energy level (serene, joyful, contemplative, energetic)
+3. Cut points that sync with beats: ${beatTiming.beatTimes.slice(0, 15).join(', ')}
+4. Transition: "fade" (ALWAYS fade for this aesthetic)
+5. Color grade: golden/warm/dreamy tone description
+
+OUTPUT FORMAT (JSON ONLY):
 [
   {
     "sceneNumber": 1,
-    "description": "Mountain landscape at sunrise",
-    "emotions": ["serene", "inspiring", "peaceful"],
-    "suggestedCuts": [0.5, 1.2, 2.8],
+    "description": "Golden hour beach landscape, waves, sunset",
+    "emotions": ["serene", "peaceful", "nostalgic"],
+    "suggestedCuts": [0.5, 2.1, 4.3],
     "transitionType": "fade",
-    "colorGradeHint": "warm, high saturation"
+    "colorGradeHint": "golden hour, warm tones, high saturation on sky, soft shadows"
   }
 ]
 
-Respond ONLY with valid JSON, no markdown.`,
+RESPOND ONLY WITH JSON, NO MARKDOWN.`,
               },
             ],
           },
@@ -124,44 +145,57 @@ Respond ONLY with valid JSON, no markdown.`,
         messages: [
           {
             role: 'user',
-            content: `Generate an editing plan for a travel vlog with the following scenes:
+            content: `SUMMER INSTAGRAM REELS EDITING PLAN
 
-Scenes: ${JSON.stringify(sceneAnalysis, null, 2)}
+Scenes analyzed: ${JSON.stringify(sceneAnalysis, null, 2)}
 
-Beat timing:
+Music timing:
 - BPM: ${beatData.bpm}
-- Beat times (seconds): ${beatData.beatTimes.join(', ')}
+- Beat points (seconds): ${beatData.beatTimes.join(', ')}
+- Target length: ${targetDuration} seconds
 
-Requirements:
-1. Create cuts synchronized to beat points
-2. Use transitions that match emotional tone
-3. Target final video duration: ${targetDuration} seconds
-4. Prioritize high-energy scenes during bass drops
-5. Use slower transitions during mellower sections
+EDITING RULES:
+1. Maintain dreamy, cinematic pacing (NOT TikTok-fast)
+2. Landscapes = longer holds (3-5 sec) to let beauty sink in
+3. Regular clips = medium pacing (2-3 sec)
+4. Energy moments (bars, action) = faster (1-2 sec)
+5. ALL transitions = smooth FADE (no hard cuts, no zooms)
+6. Sync cuts to BEAT POINTS but feel organic, not robotic
+7. Emphasize emotional arc: serene → joy → reflective → energetic → nostalgic
+8. Golden hour/sunset scenes get longest holds
+9. Quiet moments > action moments for this vibe
 
-Return a JSON array of editing instructions with this structure:
+GOLDEN HOUR RULE: Extend scenes with warm tones/sunsets by 1-2 extra seconds
+
+Generate edit instructions (cuts and fades) that:
+- Align with beat points but prioritize visual flow
+- Create emotional pacing (slow builds, gentle releases)
+- Match color grading to music intensity
+- Feel like a summer memory montage, not a music video
+
+OUTPUT (JSON ONLY):
 [
   {
     "timestamp": 0.5,
     "type": "cut",
-    "description": "Cut to mountain scene",
+    "description": "Cut to golden hour beach",
     "parameters": {
       "easeType": "linear",
-      "duration": 0.3
+      "duration": 0.5
     }
   },
   {
     "timestamp": 1.2,
     "type": "transition",
-    "description": "Fade transition",
+    "description": "Smooth fade between scenes",
     "parameters": {
       "transitionType": "fade",
-      "duration": 0.5
+      "duration": 0.8
     }
   }
 ]
 
-Respond ONLY with valid JSON, no markdown.`,
+ONLY JSON, NO MARKDOWN.`,
           },
         ],
       });
