@@ -1,11 +1,15 @@
 #!/bin/bash
 
-# Concatenate ALL video clips in raw_clips/ (any format, any filename)
-# and run the complete editing pipeline against the given music track.
+# Concatenate ALL clips (videos AND photos) in raw_clips/ into one edit,
+# then run the complete AI editing pipeline against the given music track.
+#
+# Photos are turned into short clips with a subtle Ken Burns zoom so they
+# don't look like dead static frames in the final video.
 
 set -e
 
 MUSIC_PATH="${1:-audio/music.mp3}"
+PHOTO_DURATION="${PHOTO_DURATION:-4}"   # seconds each photo is shown
 
 if [ ! -f "$MUSIC_PATH" ]; then
   echo "❌ Music file not found: $MUSIC_PATH"
@@ -16,47 +20,81 @@ fi
 
 mkdir -p temp
 
-# Find every video file in raw_clips/, regardless of name or extension
-# (mp4, mov, MOV, m4v, mkv, avi — case-insensitive)
-mapfile -t CLIPS < <(find raw_clips -maxdepth 1 -type f \( \
+# Find every video AND image file in raw_clips/, any filename, sorted
+# together so numbered prefixes (01_, 02_, ...) control the final order
+# regardless of whether an item is a video or a photo.
+mapfile -t ITEMS < <(find raw_clips -maxdepth 1 -type f \( \
   -iname "*.mp4" -o -iname "*.mov" -o -iname "*.m4v" -o \
-  -iname "*.mkv" -o -iname "*.avi" \) | sort)
+  -iname "*.mkv" -o -iname "*.avi" -o \
+  -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.heic" \
+  \) | sort)
 
-if [ ${#CLIPS[@]} -eq 0 ]; then
-  echo "❌ No video files found in raw_clips/"
+if [ ${#ITEMS[@]} -eq 0 ]; then
+  echo "❌ No video or photo files found in raw_clips/"
   exit 1
 fi
 
-echo "📹 Found ${#CLIPS[@]} clip(s) in raw_clips/:"
-printf '   %s\n' "${CLIPS[@]}"
+echo "📹 Found ${#ITEMS[@]} item(s) in raw_clips/:"
+printf '   %s\n' "${ITEMS[@]}"
 
-# Re-encode each clip to a consistent format (resolution/fps/codec) so
-# clips from different sources (phone vs camera) concatenate cleanly.
 echo ""
-echo "🔧 Normalizing clips to a common format..."
+echo "🔧 Normalizing all clips/photos to a common format..."
 rm -rf temp/normalized
-mkdir -p temp/normalized
+mkdir -p temp/normalized temp/converted_images
 
 NORMALIZED_LIST="temp/concat_list.txt"
 rm -f "$NORMALIZED_LIST"
 
 i=0
-for clip in "${CLIPS[@]}"; do
+for item in "${ITEMS[@]}"; do
   i=$((i+1))
   out="temp/normalized/clip_$(printf '%03d' "$i").mp4"
-  echo "   [$i/${#CLIPS[@]}] $(basename "$clip")"
-  ffmpeg -y -i "$clip" \
-    -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-    -r 30 -c:v libx264 -crf 20 -preset veryfast \
-    -c:a aac -ar 48000 -ac 2 \
-    "$out" -loglevel error
+  ext="${item##*.}"
+  ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+
+  case "$ext_lower" in
+    jpg|jpeg|png|heic)
+      src="$item"
+
+      # HEIC (default iPhone format) needs conversion to JPG first via macOS sips
+      if [ "$ext_lower" = "heic" ]; then
+        if command -v sips >/dev/null 2>&1; then
+          converted="temp/converted_images/$(basename "${item%.*}").jpg"
+          sips -s format jpeg "$item" --out "$converted" >/dev/null
+          src="$converted"
+        else
+          echo "   [$i/${#ITEMS[@]}] ⚠️  Skipping $(basename "$item") — HEIC needs macOS 'sips' to convert, not found"
+          continue
+        fi
+      fi
+
+      echo "   [$i/${#ITEMS[@]}] 📷 $(basename "$item") (photo, ${PHOTO_DURATION}s w/ zoom)"
+      frames=$((PHOTO_DURATION * 30))
+      ffmpeg -y -loop 1 -i "$src" \
+        -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 \
+        -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0008,1.15)':d=${frames}:s=1080x1920:fps=30,format=yuv420p" \
+        -c:v libx264 -crf 20 -preset veryfast \
+        -c:a aac -ar 48000 -ac 2 \
+        -t "$PHOTO_DURATION" -r 30 -shortest \
+        "$out" -loglevel error
+      ;;
+    *)
+      echo "   [$i/${#ITEMS[@]}] 🎬 $(basename "$item") (video)"
+      ffmpeg -y -i "$item" \
+        -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+        -r 30 -c:v libx264 -crf 20 -preset veryfast \
+        -c:a aac -ar 48000 -ac 2 \
+        "$out" -loglevel error
+      ;;
+  esac
+
   echo "file '$PWD/$out'" >> "$NORMALIZED_LIST"
 done
 
-# Concatenate the normalized clips
+# Concatenate everything
 CONCAT_VIDEO="temp/concatenated.mp4"
 echo ""
-echo "🎬 Concatenating all clips..."
+echo "🎬 Concatenating all clips and photos..."
 ffmpeg -y -f concat -safe 0 -i "$NORMALIZED_LIST" -c copy "$CONCAT_VIDEO" -loglevel error
 
 # Run the editing pipeline
