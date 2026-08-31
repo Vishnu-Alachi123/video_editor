@@ -12,6 +12,7 @@
     "extract:video": "node --loader ts-node/esm src/cli/extract-video.ts",
     "analyze:audio": "python3 src/audio_analysis.py",
     "edit:auto": "node --loader ts-node/esm src/cli/auto-edit.ts",
+    "curate:edit": "node --loader ts-node/esm src/cli/curate-and-edit.ts",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write 'src/**/*.ts'"
   },

@@ -1,7 +1,9 @@
 #!/bin/bash
 
-# Concatenate ALL clips (videos AND photos) in raw_clips/ into one edit,
-# then run the complete AI editing pipeline against the given music track.
+# Normalize every clip/photo in raw_clips/, build a manifest describing
+# them, then hand off to the AI curation pipeline (src/cli/curate-and-edit.ts)
+# which picks the best highlights, trims/orders them, crossfades them
+# together, applies the summer color grade, and syncs the result to music.
 #
 # Photos are turned into short clips with a subtle Ken Burns zoom so they
 # don't look like dead static frames in the final video.
@@ -9,7 +11,9 @@
 set -e
 
 MUSIC_PATH="${1:-audio/music.mp3}"
-PHOTO_DURATION="${PHOTO_DURATION:-4}"   # seconds each photo is shown
+PHOTO_DURATION="${PHOTO_DURATION:-4}"   # seconds each photo clip is generated at
+TARGET_DURATION="${TARGET_DURATION:-60}" # target length of the final edit, seconds
+CURATION_MODE="${CURATION_MODE:-ai}"     # "ai" (Claude-curated) or "even" (no AI, deterministic)
 
 if [ ! -f "$MUSIC_PATH" ]; then
   echo "❌ Music file not found: $MUSIC_PATH"
@@ -39,16 +43,16 @@ if [ ${#ITEMS[@]} -eq 0 ]; then
   exit 1
 fi
 
-echo "📹 Found ${#ITEMS[@]} item(s) in raw_clips/:"
-printf '   %s\n' "${ITEMS[@]}"
+echo "📹 Found ${#ITEMS[@]} item(s) in raw_clips/"
 
 echo ""
 echo "🔧 Normalizing all clips/photos to a common format..."
 rm -rf temp/normalized
 mkdir -p temp/normalized temp/converted_images
 
-NORMALIZED_LIST="temp/concat_list.txt"
-rm -f "$NORMALIZED_LIST"
+MANIFEST="temp/clip_manifest.json"
+echo "[" > "$MANIFEST"
+first_entry=true
 
 i=0
 for item in "${ITEMS[@]}"; do
@@ -57,8 +61,15 @@ for item in "${ITEMS[@]}"; do
   ext="${item##*.}"
   ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
 
+  base_noext=$(basename "${item%.*}")
+  # Strip a trailing " (1)", " (2)", etc. so duplicate-export photos and
+  # live-photo video/still pairs share the same baseName for dedup.
+  base_key=$(echo "$base_noext" | sed -E 's/ \([0-9]+\)$//')
+
+  clip_type=""
   case "$ext_lower" in
     jpg|jpeg|png|heic)
+      clip_type="photo"
       src="$item"
 
       # HEIC (default iPhone format) needs conversion to JPG first via macOS sips
@@ -84,6 +95,7 @@ for item in "${ITEMS[@]}"; do
         "$out" -loglevel error
       ;;
     *)
+      clip_type="video"
       echo "   [$i/${#ITEMS[@]}] 🎬 $(basename "$item") (video)"
       ffmpeg -y -i "$item" \
         -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
@@ -93,21 +105,25 @@ for item in "${ITEMS[@]}"; do
       ;;
   esac
 
-  echo "file '$PWD/$out'" >> "$NORMALIZED_LIST"
+  duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out" 2>/dev/null || echo "0")
+
+  if [ "$first_entry" = true ]; then
+    first_entry=false
+  else
+    echo "," >> "$MANIFEST"
+  fi
+  printf '  {"index": %d, "normalizedPath": "%s", "originalPath": "%s", "baseName": "%s", "type": "%s", "duration": %s}' \
+    "$i" "$PWD/$out" "$item" "$base_key" "$clip_type" "$duration" >> "$MANIFEST"
 done
 
-# Concatenate everything
-CONCAT_VIDEO="temp/concatenated.mp4"
-echo ""
-echo "🎬 Concatenating all clips and photos..."
-ffmpeg -y -f concat -safe 0 -i "$NORMALIZED_LIST" -c copy "$CONCAT_VIDEO" -loglevel error
+echo "" >> "$MANIFEST"
+echo "]" >> "$MANIFEST"
 
-# Run the editing pipeline
 echo ""
-echo "✨ Running AI editing pipeline..."
-npm run edit:auto "$CONCAT_VIDEO" "$MUSIC_PATH"
+echo "✨ Running AI curation + editing pipeline (target: ${TARGET_DURATION}s, mode: ${CURATION_MODE})..."
+npm run curate:edit -- "$MANIFEST" "$MUSIC_PATH" --duration "$TARGET_DURATION" --mode "$CURATION_MODE"
 
-FINAL_OUTPUT="output/$(basename "$CONCAT_VIDEO" .mp4)_final.mp4"
+FINAL_OUTPUT="output/summer_edit_final.mp4"
 if [ -f "$FINAL_OUTPUT" ]; then
   echo ""
   echo "✅ Done! Output saved to $FINAL_OUTPUT"
