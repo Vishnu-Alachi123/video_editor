@@ -18,6 +18,14 @@ interface SceneAnalysis {
   colorGradeHint: string;
 }
 
+export interface ClipRating {
+  index: number;
+  sceneType: string;
+  quality: number;
+  keep: boolean;
+  notable: string;
+}
+
 export class ClaudeVideoAnalyzer {
   private client: Anthropic;
   private model = 'claude-3-5-haiku-20241022'; // 73% cheaper than Sonnet
@@ -26,6 +34,76 @@ export class ClaudeVideoAnalyzer {
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
     });
+  }
+
+  /**
+   * Rate a batch of candidate clip thumbnails for inclusion in a curated
+   * summer Instagram Reels highlight edit. `indices` must line up 1:1 with
+   * `thumbnailPaths` so results can be mapped back to source clips.
+   */
+  async rateClips(thumbnailPaths: string[], indices: number[]): Promise<ClipRating[]> {
+    try {
+      const imageContents: Anthropic.ImageBlockParam[] = [];
+
+      for (const framePath of thumbnailPaths) {
+        try {
+          const imageData = await fs.readFile(framePath);
+          const base64 = imageData.toString('base64');
+          imageContents.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: 'image/jpeg',
+              data: base64,
+            },
+          });
+        } catch (err) {
+          console.warn(`Could not load thumbnail: ${framePath}`);
+        }
+      }
+
+      if (imageContents.length === 0) {
+        return [];
+      }
+
+      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+      imageContents.forEach((img, i) => {
+        content.push({ type: 'text', text: `Clip index ${indices[i]}:` });
+        content.push(img);
+      });
+
+      content.push({
+        type: 'text',
+        text: `You're curating clips for a SUMMER INSTAGRAM REELS travel highlight video (dreamy, cinematic, nostalgic — golden hour beach aesthetic, Tame Impala energy, chill not high-action).
+
+For EACH numbered clip image above, rate it for inclusion in the final highlight reel:
+- sceneType: one of "landscape" (scenic beach/nature/sunset), "action" (bars/partying/movement), "portrait" (people-focused), "other"
+- quality: 1-10, how visually appealing/well-composed/worth including this shot is (blurry, dark, awkward, or boring shots score low; beautiful scenery, genuine candid moments, striking light score high)
+- keep: true/false — should this make the highlight reel at all (false for blurry, near-duplicate, or low-value shots)
+- notable: very short (<8 words) description of what's in it
+
+Respond ONLY with a JSON array, one object per clip index provided, in this exact shape:
+[{"index": 0, "sceneType": "landscape", "quality": 8, "keep": true, "notable": "golden hour beach waves"}]
+
+ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
+      });
+
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 2000,
+        messages: [{ role: 'user', content }],
+      });
+
+      const responseContent = response.content[0];
+      if (responseContent.type !== 'text') {
+        throw new Error('Unexpected response type from Claude');
+      }
+
+      return JSON.parse(responseContent.text);
+    } catch (error) {
+      console.error('Error rating clips:', error);
+      return [];
+    }
   }
 
   async analyzeKeyframes(
