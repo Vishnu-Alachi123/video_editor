@@ -16,6 +16,7 @@ TARGET_DURATION="${TARGET_DURATION:-60}" # target length of the final edit, seco
 CURATION_MODE="${CURATION_MODE:-ai}"     # "ai" (Claude-curated) or "even" (no AI, deterministic)
 AUDIO_START_OFFSET="${AUDIO_START_OFFSET:-0}" # seconds into the music track to start from
 VIDEO_RATIO="${VIDEO_RATIO:-0.75}"       # min fraction of final duration that should come from videos vs photos
+FORCE_RENORMALIZE="${FORCE_RENORMALIZE:-0}" # set to 1 to force re-normalizing even if raw_clips/ looks unchanged
 
 if [ ! -f "$MUSIC_PATH" ]; then
   echo "❌ Music file not found: $MUSIC_PATH"
@@ -47,79 +48,105 @@ fi
 
 echo "📹 Found ${#ITEMS[@]} item(s) in raw_clips/"
 
-echo ""
-echo "🔧 Normalizing all clips/photos to a common format..."
-rm -rf temp/normalized
-mkdir -p temp/normalized temp/converted_images
-
 MANIFEST="temp/clip_manifest.json"
-echo "[" > "$MANIFEST"
-first_entry=true
+HASH_FILE="temp/raw_clips.hash"
 
-i=0
-for item in "${ITEMS[@]}"; do
-  i=$((i+1))
-  out="temp/normalized/clip_$(printf '%03d' "$i").mp4"
-  ext="${item##*.}"
-  ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-
-  base_noext=$(basename "${item%.*}")
-  # Strip a trailing " (1)", " (2)", etc. so duplicate-export photos and
-  # live-photo video/still pairs share the same baseName for dedup.
-  base_key=$(echo "$base_noext" | sed -E 's/ \([0-9]+\)$//')
-
-  clip_type=""
-  case "$ext_lower" in
-    jpg|jpeg|png|heic)
-      clip_type="photo"
-      src="$item"
-
-      # HEIC (default iPhone format) needs conversion to JPG first via macOS sips
-      if [ "$ext_lower" = "heic" ]; then
-        if command -v sips >/dev/null 2>&1; then
-          converted="temp/converted_images/$(basename "${item%.*}").jpg"
-          sips -s format jpeg "$item" --out "$converted" >/dev/null
-          src="$converted"
-        else
-          echo "   [$i/${#ITEMS[@]}] ⚠️  Skipping $(basename "$item") — HEIC needs macOS 'sips' to convert, not found"
-          continue
-        fi
+# Skip re-normalizing (the slow part — one ffmpeg re-encode per clip) if
+# raw_clips/ hasn't changed since the last run. We hash filenames+sizes,
+# not content, so this is fast; set FORCE_RENORMALIZE=1 to bypass it.
+CURRENT_HASH=$(find raw_clips -maxdepth 1 -type f -exec ls -la {} \; | sort | shasum -a 256 | cut -d' ' -f1)
+CACHE_VALID=0
+if [ "$FORCE_RENORMALIZE" != "1" ] && [ -f "$HASH_FILE" ] && [ -f "$MANIFEST" ]; then
+  if [ "$(cat "$HASH_FILE")" = "$CURRENT_HASH" ]; then
+    CACHE_VALID=1
+    while IFS= read -r p; do
+      if [ ! -f "$p" ]; then
+        CACHE_VALID=0
+        break
       fi
-
-      echo "   [$i/${#ITEMS[@]}] 📷 $(basename "$item") (photo, ${PHOTO_DURATION}s w/ zoom)"
-      frames=$((PHOTO_DURATION * 30))
-      ffmpeg -y -loop 1 -i "$src" \
-        -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 \
-        -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0008,1.15)':d=${frames}:s=1080x1920:fps=30,format=yuv420p" \
-        -c:v libx264 -crf 20 -preset veryfast \
-        -c:a aac -ar 48000 -ac 2 \
-        -t "$PHOTO_DURATION" -r 30 -shortest \
-        "$out" -loglevel error
-      ;;
-    *)
-      clip_type="video"
-      echo "   [$i/${#ITEMS[@]}] 🎬 $(basename "$item") (video)"
-      ffmpeg -y -i "$item" \
-        -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
-        -r 30 -c:v libx264 -crf 20 -preset veryfast \
-        -c:a aac -ar 48000 -ac 2 \
-        "$out" -loglevel error
-      ;;
-  esac
-
-  duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out" 2>/dev/null || echo "0")
-
-  if [ "$first_entry" = true ]; then
-    first_entry=false
-  else
-    echo "," >> "$MANIFEST"
+    done < <(grep -o '"normalizedPath": *"[^"]*"' "$MANIFEST" | sed -E 's/.*: *"(.*)"/\1/')
   fi
-  printf '  {"index": %d, "normalizedPath": "%s", "originalPath": "%s", "baseName": "%s", "type": "%s", "duration": %s}' \
-    "$i" "$PWD/$out" "$item" "$base_key" "$clip_type" "$duration" >> "$MANIFEST"
-done
+fi
 
-echo "" >> "$MANIFEST"
-echo "]" >> "$MANIFEST"
+if [ "$CACHE_VALID" = "1" ]; then
+  echo "♻️  raw_clips/ unchanged since last run — reusing normalized clips and manifest."
+  echo "    (set FORCE_RENORMALIZE=1 to force re-normalizing from scratch)"
+else
+  echo ""
+  echo "🔧 Normalizing all clips/photos to a common format..."
+  rm -rf temp/normalized
+  mkdir -p temp/normalized temp/converted_images
+
+  echo "[" > "$MANIFEST"
+  first_entry=true
+
+  i=0
+  for item in "${ITEMS[@]}"; do
+    i=$((i+1))
+    out="temp/normalized/clip_$(printf '%03d' "$i").mp4"
+    ext="${item##*.}"
+    ext_lower=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+
+    base_noext=$(basename "${item%.*}")
+    # Strip a trailing " (1)", " (2)", etc. so duplicate-export photos and
+    # live-photo video/still pairs share the same baseName for dedup.
+    base_key=$(echo "$base_noext" | sed -E 's/ \([0-9]+\)$//')
+
+    clip_type=""
+    case "$ext_lower" in
+      jpg|jpeg|png|heic)
+        clip_type="photo"
+        src="$item"
+
+        # HEIC (default iPhone format) needs conversion to JPG first via macOS sips
+        if [ "$ext_lower" = "heic" ]; then
+          if command -v sips >/dev/null 2>&1; then
+            converted="temp/converted_images/$(basename "${item%.*}").jpg"
+            sips -s format jpeg "$item" --out "$converted" >/dev/null
+            src="$converted"
+          else
+            echo "   [$i/${#ITEMS[@]}] ⚠️  Skipping $(basename "$item") — HEIC needs macOS 'sips' to convert, not found"
+            continue
+          fi
+        fi
+
+        echo "   [$i/${#ITEMS[@]}] 📷 $(basename "$item") (photo, ${PHOTO_DURATION}s w/ zoom)"
+        frames=$((PHOTO_DURATION * 30))
+        ffmpeg -y -loop 1 -i "$src" \
+          -f lavfi -i anullsrc=channel_layout=stereo:sample_rate=48000 \
+          -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,zoompan=z='min(zoom+0.0008,1.15)':d=${frames}:s=1080x1920:fps=30,format=yuv420p" \
+          -c:v libx264 -crf 20 -preset veryfast \
+          -c:a aac -ar 48000 -ac 2 \
+          -t "$PHOTO_DURATION" -r 30 -shortest \
+          "$out" -loglevel error
+        ;;
+      *)
+        clip_type="video"
+        echo "   [$i/${#ITEMS[@]}] 🎬 $(basename "$item") (video)"
+        ffmpeg -y -i "$item" \
+          -vf "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2,setsar=1" \
+          -r 30 -c:v libx264 -crf 20 -preset veryfast \
+          -c:a aac -ar 48000 -ac 2 \
+          "$out" -loglevel error
+        ;;
+    esac
+
+    duration=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out" 2>/dev/null || echo "0")
+
+    if [ "$first_entry" = true ]; then
+      first_entry=false
+    else
+      echo "," >> "$MANIFEST"
+    fi
+    printf '  {"index": %d, "normalizedPath": "%s", "originalPath": "%s", "baseName": "%s", "type": "%s", "duration": %s}' \
+      "$i" "$PWD/$out" "$item" "$base_key" "$clip_type" "$duration" >> "$MANIFEST"
+  done
+
+  echo "" >> "$MANIFEST"
+  echo "]" >> "$MANIFEST"
+
+  echo "$CURRENT_HASH" > "$HASH_FILE"
+fi
 
 echo ""
 echo "✨ Running AI curation + editing pipeline (target: ${TARGET_DURATION}s, mode: ${CURATION_MODE}, audio start: ${AUDIO_START_OFFSET}s)..."

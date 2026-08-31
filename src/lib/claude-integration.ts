@@ -36,7 +36,7 @@ export interface EditReview {
 
 export class ClaudeVideoAnalyzer {
   private client: Anthropic;
-  private model = 'claude-3-5-haiku-20241022'; // 73% cheaper than Sonnet
+  private model = 'claude-haiku-4-5-20251001'; // cheapest current model with vision support
 
   constructor(apiKey?: string, workspaceId?: string) {
     const wsId = workspaceId || process.env.ANTHROPIC_WORKSPACE_ID;
