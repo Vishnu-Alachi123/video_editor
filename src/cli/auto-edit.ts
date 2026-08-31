@@ -3,6 +3,7 @@
 import { VideoEditingEngine } from '../lib/video-editing-engine.js';
 import { config, initializeDirectories, validateConfig } from '../lib/config.js';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 interface AutoEditOptions {
   projectName: string;
@@ -55,7 +56,10 @@ async function autoEdit(options: AutoEditOptions) {
 }
 
 // CLI
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isMainModule =
+  process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+
+if (isMainModule) {
   const args = process.argv.slice(2);
 
   if (args.length < 1) {
