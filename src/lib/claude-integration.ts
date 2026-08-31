@@ -23,17 +23,42 @@ export interface ClipRating {
   sceneType: string;
   quality: number;
   keep: boolean;
+  hookWorthy: boolean;
   notable: string;
+}
+
+export interface EditReview {
+  overallScore: number;
+  hookGood: boolean;
+  issues: string[];
+  weakPositions: number[];
 }
 
 export class ClaudeVideoAnalyzer {
   private client: Anthropic;
   private model = 'claude-3-5-haiku-20241022'; // 73% cheaper than Sonnet
 
-  constructor(apiKey?: string) {
+  constructor(apiKey?: string, workspaceId?: string) {
+    const wsId = workspaceId || process.env.ANTHROPIC_WORKSPACE_ID;
     this.client = new Anthropic({
       apiKey: apiKey || process.env.ANTHROPIC_API_KEY,
+      defaultHeaders: wsId ? { 'anthropic-workspace-id': wsId } : undefined,
     });
+  }
+
+  /** Cheap sanity call to fail fast with a clear message instead of burning
+   * through every batch with the same auth error. */
+  async verifyAuth(): Promise<{ ok: true } | { ok: false; message: string }> {
+    try {
+      await this.client.messages.create({
+        model: this.model,
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'ping' }],
+      });
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, message: error?.message || String(error) };
+    }
   }
 
   /**
@@ -80,10 +105,11 @@ For EACH numbered clip image above, rate it for inclusion in the final highlight
 - sceneType: one of "landscape" (scenic beach/nature/sunset), "action" (bars/partying/movement), "portrait" (people-focused), "other"
 - quality: 1-10, how visually appealing/well-composed/worth including this shot is (blurry, dark, awkward, or boring shots score low; beautiful scenery, genuine candid moments, striking light score high)
 - keep: true/false — should this make the highlight reel at all (false for blurry, near-duplicate, or low-value shots)
+- hookWorthy: true/false — would this be a STRONG opening shot? Short-form video best practice is to open on the single most eye-catching, high-impact frame to stop the scroll in the first second (a stunning wide landscape, a striking action moment, peak golden-hour light). Most clips should be false; only mark true for genuinely exceptional shots.
 - notable: very short (<8 words) description of what's in it
 
 Respond ONLY with a JSON array, one object per clip index provided, in this exact shape:
-[{"index": 0, "sceneType": "landscape", "quality": 8, "keep": true, "notable": "golden hour beach waves"}]
+[{"index": 0, "sceneType": "landscape", "quality": 8, "keep": true, "hookWorthy": false, "notable": "golden hour beach waves"}]
 
 ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
       });
@@ -103,6 +129,68 @@ ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
     } catch (error) {
       console.error('Error rating clips:', error);
       return [];
+    }
+  }
+
+  /**
+   * Review an assembled edit (sampled frames in timeline order) against
+   * established short-form video editing principles, and flag weak spots
+   * for a refinement pass.
+   */
+  async reviewEdit(framePaths: string[]): Promise<EditReview> {
+    const fallback: EditReview = { overallScore: 7, hookGood: true, issues: [], weakPositions: [] };
+    try {
+      const content: Array<Anthropic.TextBlockParam | Anthropic.ImageBlockParam> = [];
+
+      framePaths.forEach((_, i) => {
+        content.push({ type: 'text', text: `Position ${i + 1}:` });
+      });
+
+      for (const framePath of framePaths) {
+        try {
+          const imageData = await fs.readFile(framePath);
+          content.push({
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/jpeg', data: imageData.toString('base64') },
+          });
+        } catch (err) {
+          console.warn(`Could not load review frame: ${framePath}`);
+        }
+      }
+
+      content.push({
+        type: 'text',
+        text: `These frames are sampled in order from an assembled SUMMER INSTAGRAM REELS travel highlight edit (cinematic, dreamy, golden-hour, Tame Impala energy). Each is labeled with its Position number in the sequence.
+
+Evaluate against established short-form video editing principles:
+1. HOOK: Does Position 1 grab attention in the first second (striking, high-impact, scroll-stopping)? Weak, generic, or dark openers fail this.
+2. VARIETY: Are there 3+ consecutive positions that look near-identical or repetitive (same scene type, same composition)? That kills pacing.
+3. FLOW: Does the sequence feel like a coherent journey rather than a random shuffle?
+4. CLOSER: Does the edit end on a satisfying note rather than trailing off on something weak?
+
+Respond ONLY with JSON in this exact shape:
+{"overallScore": 7, "hookGood": true, "issues": ["short description of each real problem"], "weakPositions": [3, 4]}
+
+overallScore is 1-10. weakPositions lists the Position numbers (1-indexed) that should be swapped out for something better — leave empty if the edit is solid. Be specific and honest; a mediocre edit should not score above 6.
+
+ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
+      });
+
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 1000,
+        messages: [{ role: 'user', content }],
+      });
+
+      const responseContent = response.content[0];
+      if (responseContent.type !== 'text') {
+        return fallback;
+      }
+
+      return JSON.parse(responseContent.text);
+    } catch (error) {
+      console.error('Error reviewing edit:', error);
+      return fallback;
     }
   }
 

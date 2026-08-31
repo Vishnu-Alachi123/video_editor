@@ -14,6 +14,8 @@ MUSIC_PATH="${1:-audio/music.mp3}"
 PHOTO_DURATION="${PHOTO_DURATION:-4}"   # seconds each photo clip is generated at
 TARGET_DURATION="${TARGET_DURATION:-60}" # target length of the final edit, seconds
 CURATION_MODE="${CURATION_MODE:-ai}"     # "ai" (Claude-curated) or "even" (no AI, deterministic)
+AUDIO_START_OFFSET="${AUDIO_START_OFFSET:-0}" # seconds into the music track to start from
+VIDEO_RATIO="${VIDEO_RATIO:-0.75}"       # min fraction of final duration that should come from videos vs photos
 
 if [ ! -f "$MUSIC_PATH" ]; then
   echo "❌ Music file not found: $MUSIC_PATH"
@@ -120,8 +122,10 @@ echo "" >> "$MANIFEST"
 echo "]" >> "$MANIFEST"
 
 echo ""
-echo "✨ Running AI curation + editing pipeline (target: ${TARGET_DURATION}s, mode: ${CURATION_MODE})..."
-npm run curate:edit -- "$MANIFEST" "$MUSIC_PATH" --duration "$TARGET_DURATION" --mode "$CURATION_MODE"
+echo "✨ Running AI curation + editing pipeline (target: ${TARGET_DURATION}s, mode: ${CURATION_MODE}, audio start: ${AUDIO_START_OFFSET}s)..."
+npm run curate:edit -- "$MANIFEST" "$MUSIC_PATH" \
+  --duration "$TARGET_DURATION" --mode "$CURATION_MODE" \
+  --audio-start "$AUDIO_START_OFFSET" --video-ratio "$VIDEO_RATIO"
 
 FINAL_OUTPUT="output/summer_edit_final.mp4"
 if [ -f "$FINAL_OUTPUT" ]; then

@@ -12,6 +12,7 @@ from typing import Dict, List, Tuple, Any
 
 try:
     import librosa
+    import librosa.feature.rhythm  # not auto-imported by `import librosa`
     import numpy as np
     from scipy import signal
 except ImportError:
@@ -34,20 +35,22 @@ class AudioAnalyzer:
         """Detect BPM and confidence of the audio."""
         try:
             onset_env = librosa.onset.onset_strength(y=self.y, sr=self.sr)
-            # Estimate global tempo
-            tempos = librosa.feature.tempogram_sinusoid(onset_env=onset_env, sr=self.sr)
-            tempo = np.median(
-                librosa.tempo(onset_env=onset_env, sr=self.sr, aggregate=None)
+            # Estimate global tempo (librosa.feature.rhythm.tempo is the
+            # current home for this; older librosa.tempo/librosa.beat.tempo
+            # aliases have been removed/deprecated across versions)
+            tempo_candidates = librosa.feature.rhythm.tempo(
+                onset_envelope=onset_env, sr=self.sr, aggregate=None
             )
+            tempo = float(np.median(tempo_candidates))
 
             # Spectral centroid for confidence scoring
             spectral_centroids = librosa.feature.spectral_centroid(y=self.y, sr=self.sr)[0]
             confidence = min(1.0, np.std(spectral_centroids) / 5000)
 
             return {
-                "bpm": float(tempo),
+                "bpm": tempo,
                 "confidence": float(confidence),
-                "tempos_detected": [float(t) for t in librosa.tempo(onset_env=onset_env, sr=self.sr, aggregate=None)[:5]],
+                "tempos_detected": [float(t) for t in tempo_candidates[:5]],
             }
         except Exception as e:
             return {"bpm": 0, "confidence": 0, "error": str(e)}
@@ -56,17 +59,20 @@ class AudioAnalyzer:
         """Detect beat frames and times."""
         try:
             onset_env = librosa.onset.onset_strength(y=self.y, sr=self.sr)
-            tempo, beats = librosa.beat.beat_track(y=self.y, sr=self.sr, onset_env=onset_env)
+            tempo, beats = librosa.beat.beat_track(y=self.y, sr=self.sr, onset_envelope=onset_env)
+
+            # Newer librosa returns tempo as an array rather than a scalar
+            tempo_value = float(np.ravel(tempo)[0]) if np.ndim(tempo) else float(tempo)
 
             beat_times = librosa.frames_to_time(beats, sr=self.sr).tolist()
             beat_ms = [t * 1000 for t in beat_times]
 
             return {
-                "tempo": float(tempo),
+                "tempo": tempo_value,
                 "beat_count": len(beats),
                 "beat_times_seconds": [float(t) for t in beat_times],
                 "beat_times_ms": beat_ms,
-                "beats_per_second": float(tempo / 60),
+                "beats_per_second": float(tempo_value / 60) if tempo_value else 0,
             }
         except Exception as e:
             return {"tempo": 0, "beat_count": 0, "error": str(e)}
@@ -75,7 +81,7 @@ class AudioAnalyzer:
         """Detect audio onsets (sharp changes in amplitude)."""
         try:
             onset_env = librosa.onset.onset_strength(y=self.y, sr=self.sr)
-            onsets = librosa.onset.onset_detect(onset_env=onset_env, sr=self.sr, units='time')
+            onsets = librosa.onset.onset_detect(onset_envelope=onset_env, sr=self.sr, units='time')
 
             return {
                 "onset_count": int(len(onsets)),
