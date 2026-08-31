@@ -64,7 +64,7 @@ export class VideoEditingEngine {
         try {
           const analysisData = JSON.parse(await fs.readFile(outputFile, 'utf-8'));
           const result: AudioAnalysisResult = {
-            bpm: analysisData.tempo.tempo,
+            bpm: analysisData.tempo.bpm,
             beatTimes: analysisData.beats.beat_times_seconds || [],
             onsets: analysisData.onsets.onset_times_seconds || [],
             confidence: analysisData.tempo.confidence,
