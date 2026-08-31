@@ -7,6 +7,7 @@ dotenv.config();
 export interface Config {
   anthropic: {
     apiKey: string;
+    workspaceId: string;
   };
   ffmpeg: {
     ffmpegPath: string;
@@ -48,6 +49,7 @@ function ensureDirectory(dir: string): void {
 export const config: Config = {
   anthropic: {
     apiKey: process.env.ANTHROPIC_API_KEY || '',
+    workspaceId: process.env.ANTHROPIC_WORKSPACE_ID || '',
   },
   ffmpeg: {
     ffmpegPath: process.env.FFMPEG_PATH || 'ffmpeg',
