@@ -107,5 +107,13 @@ echo ""
 echo "✨ Running AI editing pipeline..."
 npm run edit:auto "$CONCAT_VIDEO" "$MUSIC_PATH"
 
-echo ""
-echo "✅ Done! Check output/ for your edited video"
+FINAL_OUTPUT="output/$(basename "$CONCAT_VIDEO" .mp4)_final.mp4"
+if [ -f "$FINAL_OUTPUT" ]; then
+  echo ""
+  echo "✅ Done! Output saved to $FINAL_OUTPUT"
+else
+  echo ""
+  echo "❌ Something went wrong — expected output at $FINAL_OUTPUT but it wasn't created."
+  echo "   Check the pipeline logs above for errors."
+  exit 1
+fi

@@ -2,6 +2,7 @@ import { FFmpegWrapper, VideoMetadata } from '../lib/ffmpeg-wrapper.js';
 import { config, initializeDirectories } from '../lib/config.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { fileURLToPath } from 'url';
 
 interface ExtractOptions {
   videoPath: string;
@@ -79,7 +80,10 @@ async function extractVideo(options: ExtractOptions): Promise<ExtractionResult> 
 }
 
 // CLI usage
-if (import.meta.url === `file://${process.argv[1]}`) {
+const isMainModule =
+  process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
+
+if (isMainModule) {
   const videoPath = process.argv[2];
 
   if (!videoPath) {
