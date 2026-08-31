@@ -34,6 +34,13 @@ export interface EditReview {
   weakPositions: number[];
 }
 
+// Models frequently wrap JSON in ```json ... ``` fences despite being told
+// not to — strip them before parsing instead of failing on the backtick.
+function parseJsonResponse(text: string): any {
+  const cleaned = text.trim().replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+  return JSON.parse(cleaned);
+}
+
 export class ClaudeVideoAnalyzer {
   private client: Anthropic;
   private model = 'claude-haiku-4-5-20251001'; // cheapest current model with vision support
@@ -125,7 +132,7 @@ ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
         throw new Error('Unexpected response type from Claude');
       }
 
-      return JSON.parse(responseContent.text);
+      return parseJsonResponse(responseContent.text);
     } catch (error) {
       console.error('Error rating clips:', error);
       return [];
@@ -187,7 +194,7 @@ ONLY JSON, NO MARKDOWN, NO OTHER TEXT.`,
         return fallback;
       }
 
-      return JSON.parse(responseContent.text);
+      return parseJsonResponse(responseContent.text);
     } catch (error) {
       console.error('Error reviewing edit:', error);
       return fallback;
@@ -292,7 +299,7 @@ RESPOND ONLY WITH JSON, NO MARKDOWN.`,
         throw new Error('Unexpected response type from Claude');
       }
 
-      return JSON.parse(content.text);
+      return parseJsonResponse(content.text);
     } catch (error) {
       console.error('Error analyzing keyframes:', error);
       return [];
@@ -371,7 +378,7 @@ ONLY JSON, NO MARKDOWN.`,
         throw new Error('Unexpected response type from Claude');
       }
 
-      return JSON.parse(content.text);
+      return parseJsonResponse(content.text);
     } catch (error) {
       console.error('Error generating editing plan:', error);
       return [];
