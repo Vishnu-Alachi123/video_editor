@@ -1,13 +1,12 @@
 # Audio Analysis & BPM Detection
-librosa==0.10.0
+# librosa<0.11 calls scipy.signal.hann() directly, which recent scipy
+# releases removed (moved to scipy.signal.windows.hann) — must stay >=0.11
+librosa>=0.11.0
 scipy>=1.12.0
 numpy>=1.24.0
 
 # Audio Feature Extraction
 scikit-learn>=1.3.0
-
-# Optional: Advanced audio processing
-essentia>=2.1.0
 
 # CLI & Utilities
 python-dotenv>=1.0.0
